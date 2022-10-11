@@ -37,7 +37,7 @@ int main() {
     for (int i = 0; i < length; ++i) {
         std::bitset<N> bit_serial(array[i]);
         for (int j = 0; j < N; ++j) {
-            fprintf(fp, "%d\n", (int)bit_serial[j]);
+            frintf(fp, "%d\n", (int)bit_serial[j]);
         }
     }
     fclose(fp);
