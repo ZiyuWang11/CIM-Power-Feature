@@ -15,6 +15,8 @@
 #define FILTER_SIZE 3
 #define FILTER_NUM 16
 #define CELL_PER_WEIGHT 4
+#define TILE_SIZE 8
+#define BLOCK_SIZE (TILE_SIZE+FILTER_SIZE-1)
 
 #define CHECK_CUDA_ERROR(err) check((err), __FILE__, __LINE__)
 inline void check(cudaError_t err, const char* file, const int line)
@@ -43,6 +45,7 @@ inline void check(cudaError_t err, const char* file, const int line)
                  The l-th LSB of the row i, col j, channel k
                  is input[i * (N * C * BIT_PRECISION) + 
                  j * (C * BIT_PRECISION) + C * BIT_PRECISION + l]
+                 3D format [N, N, C * BIT_PRECISION]
    - int filterNum: number of Conv filter in one layer (may not necessary)
    - float* weight_vec: pre-trained NN weight after reshape & reprecision 
                         to fit RRAM array
@@ -54,17 +57,56 @@ inline void check(cudaError_t err, const char* file, const int line)
 **/
 
 __global__
-void powerArray(int length, int filterNum, int* input, float* weight_vec, float* power)
+void powerArray(int* input, float* weight_vec, float* power)
 {
     // Load vectored weight shared memory
     __shared__ float s_weight[3 * FILTER_SIZE * FILTER_SIZE];
-    for (int i = 0; i < 3*FILTER_SIZE*FILTERSIZE; ++i) {
+    for (int i = 0; i < 3*FILTER_SIZE*FILTER_SIZE; ++i) {
         s_weight[i] = weight_vec[i];
     }
+    
+    int tx = threadIdx.x;
+    int ty = threadIdx.y;
+    int tz = threadIdx.z;
+    
+    int row_o = blockIdx.y * TILE_SIZE + ty;
+    int col_o = blockIdx.x * TILE_SIZE + tx;
+    int dep_o = tz;
 
+    int row_i = row_o - FILTER_SIZE / 2;
+    int col_i = col_o - FILTER_SIZE / 2;
+
+    // Load the Input Tile to shared memory
+    __shared__ int s_input[BLOCK_SIZE][BLOCK_SIZE][3*BIT_PRECISION];
+    if ((row_i >= 0 && row_i < INPUT_SIZE) && 
+        (col_i >= 0 && col_i < INPUT_SIZE)) {
+        for (int depth = 0; depth < 3*BIT_PRECISION; ++depth) {
+            s_input[ty][tx][depth] = input[row_i*INPUT_SIZE*BIT_PRECISION*3 + 
+                                           col_i*BIT_PRECISION*3 + depth];
+        }
+    } else {
+        for (int depth = 0; depth < 3*BIT_PRECISION; ++depth) {
+            s_input[ty][tx][depth] = 0.0f;
+        }
+    }
+
+    __syncthreads();
     // threads for row scan, column scan, bit-serial scan
     // a for loop for vector dot product
-    
+    float output = 0.0f;
+    if (tx < TILE_SIZE && ty < TILE_SIZE && tz < BIT_PRECISION) {
+        for (int i = 0; i < FILTER_SIZE; ++i) {
+            for (int j = 0; j < FILTER_SIZE; ++j) {
+                for (int k = 0; k < 3; ++k) {
+                    output += s_weight[i*FILTER_SIZE*FILTER_SIZE + k*FILTER_SIZE + k] 
+                            * s_input[i+ty][j+tx][k+tz];
+                }
+            }
+        }
+        if (row_o < OUTPUT_SIZE && col_o < OUTPUT_SIZE && dep_o < BIT_PRECISION) {
+            power[row_o*OUTPUT_SIZE*BIT_PRECISION + col_o*BIT_PRECISION + dep_o] = output;
+        }
+    }
 }
 
 int main()
@@ -114,7 +156,7 @@ int main()
         for (int j = 0; j < FILTER_NUM * CELL_PER_WEIGHT; ++j) {
             p_sum += h_filter[i * FILTER_NUM * CELL_PER_WEIGHT + j];
         }
-        h_filter_vec = p_sum;
+        h_filter_vec[i] = p_sum;
     }
 
     // Allocate host memory for array power
@@ -126,7 +168,7 @@ int main()
     }
 
     // Allocate device memory for input data, conv filter and array power
-    float* d_input = NULL;
+    int* d_input = NULL;
     err = cudaMalloc((void** )&d_input, size_input * sizeof(int));
     CHECK_CUDA_ERROR(err);
     float* d_filter_vec = NULL;
@@ -141,9 +183,18 @@ int main()
     CHECK_CUDA_ERROR(err);
     err = cudaMemcpy(d_filter_vec, h_filter_vec, size_filter_vec * sizeof(float), cudaMemcpyHostToDevice);
     CHECK_CUDA_ERROR(err);
+
     // Define kernel and run kernel function
+    dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, BIT_PRECISION);
+    dim3 blocksPerGrid((INPUT_SIZE-1)/TILE_SIZE+1, (INPUT_SIZE-1)/TILE_SIZE+1, 1);
+ 
+    powerArray<<<blocksPerGrid, threadsPerBlock>>>(d_input, d_filter_vec, d_output);
+    err = cudaGetLastError();
+    CHECK_CUDA_ERROR(err);
 
     // Copy data from device to host
+    err = cudaMemcpy(h_output, d_output, size_output * sizeof(float), cudaMemcpyDeviceToHost);
+    CHECK_CUDA_ERROR(err);
 
     // Result check
 
@@ -161,7 +212,7 @@ int main()
     // free host memory
     free(h_input);
     free(h_filter);
-    free(h_filter_vec)
+    free(h_filter_vec);
     free(h_output);
 
     return 0;
