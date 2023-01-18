@@ -2,6 +2,7 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <bitset>
 #include <cuda_runtime.h>
 
@@ -13,10 +14,11 @@
 #define CELL_PER_WEIGHT 4
 
 // Copied from adc_power.cu
+
 #define BIT 8
 #define LENGTH 256
-#define ADC_EX 32 // (128 / 4)
 #define FILTER_NUM 64
+#define ADC_EX 32 // (128 / 4)
 #define TILE_SIZE 4
 #define BLOCK_SIZE (TILE_SIZE+FILTER_SIZE-1)
 
@@ -154,8 +156,8 @@ int main()
     CHECK_CUDA_ERROR(err);
 
     /* Allocate Memory for Input*/
-    float* d_input = NULL;
-    err = cudaMalloc((void**)&d_input, size_input * sizeof(float));
+    int* d_input = NULL;
+    err = cudaMalloc((void**)&d_input, size_input * sizeof(int));
     CHECK_CUDA_ERROR(err);
 
     /* Allocate Memory for Array Power Output*/
@@ -178,21 +180,86 @@ int main()
     err = cudaMemcpy(d_adcRefArray, h_adcRefArray, size_lut * sizeof(float), cudaMemcpyHostToDevice);
     CHECK_CUDA_ERROR(err);
 
+    // Define Blocks, Threads and Streams
+    /*TODO: Change Thread and Block Number*/
+    /*Array Power*/
+    dim3 arrayThreadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, BIT_PRECISION);
+    dim3 arrayBlocksPerGrid((INPUT_SIZE-1)/TILE_SIZE+1, (INPUT_SIZE-1)/TILE_SIZE+1, 1);
+    /*ADC Energy*/
+    dim3 ADCThreadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, BIT_PRECISION);
+    dim3 ADCBlocksPerGrid((INPUT_SIZE-1)/TILE_SIZE+1, (INPUT_SIZE-1)/TILE_SIZE+1, 1);
+    /*TODO End*/
+    
+    /*2 Streams*/
+    cudaStream_t stream1, stream2;
+    err = cudaStreamCreate(&stream1);
+    CHECK_CUDA_ERROR(err);
+    err = cudaStreamCreate(&stream2);
+    CHECK_CUDA_ERROR(err);
+    
+    /*Events*/
+    cudaEvent_t event1, event2;
+    err = cudaEventCreate(&event1);
+    CHECK_CUDA_ERROR(err);
+    err = cudaEventCreate(&event2);
+    CHECK_CUDA_ERROR(err);
+
     // Loop through all input data
     size_t data_len = 2;
     for (int i = 0; i < data_len; ++i) {
         // Load input and copy input to Device
+        FILE *myFile;
+        char filename[20] = "test";
+        sprintf(filename, "%s%d", filename, i);
+        myFile = fopen(filename, "r");
+        for (int j = 0; j < size_input; ++j) {
+            fscanf(myFile, "%d", &h_input[j]);
+        }
+        fclose(myFile);
+        
+        err = cudaMemcpy(d_input, h_input, size_input * sizeof(int), cudaMemcpyHostToDevice);
+        CHECK_CUDA_ERROR(err);
 
-
-        // Creat Stream for Array Power and ADC Energy
-
+        printf("Before\n");
 
         // Run Kernel Functions
+        powerArray<<<arrayBlocksPerGrid, arrayThreadsPerBlock, 0, stream1>>>(d_input, d_condWeightVec, d_outputArray);
+        cudaEventRecord(event1, stream1);
+        printf("After\n");
+        energyADC<<<ADCBlocksPerGrid, ADCThreadsPerBlock, 0, stream2>>>(d_input ,d_condWeight, d_adcRefArray, d_outputADC);
+        cudaEventRecord(event2, stream2);
 
+        err = cudaGetLastError();
+        CHECK_CUDA_ERROR(err);
+   
+        cudaEventSynchronize(event1);
+        cudaEventSynchronize(event2);
 
         // Allocate results and write to file
+        err = cudaMemcpy(h_outputArray, d_outputArray, size_outputArray * sizeof(float), cudaMemcpyDeviceToHost);
+        CHECK_CUDA_ERROR(err);
+        err = cudaMemcpy(h_outputADC, d_outputADC, size_outputADC * sizeof(float), cudaMemcpyDeviceToHost);
+        CHECK_CUDA_ERROR(err);
 
+        // Write result to file
+        FILE *myFile2;
+        char filename2[20] = "power";
+        sprintf(filename2, "%s%d", filename2, i);
+        myFile2 = fopen(filename2, "w");
 
+        for (int j = 0; j < BIT; ++j) {
+            for (int l = 0; l < OUTPUT_SIZE*OUTPUT_SIZE; ++l) {
+                fprintf(myFile2, "%f\n", h_outputArray[j*OUTPUT_SIZE*OUTPUT_SIZE+l]);
+            }
+            
+            for (int k = 0; k < ADC_EX; ++k) {
+                for (int l = 0; l < OUTPUT_SIZE*OUTPUT_SIZE; ++l) {
+                    fprintf(myFile2, "%f\n", h_outputADC[(j*ADC_EX+k)*OUTPUT_SIZE*OUTPUT_SIZE+l]);
+                }
+            }
+        }
+
+        fclose(myFile2);
     }
 
     // Free Device Memory
@@ -384,7 +451,7 @@ void powerArray(int* input, float* weight_vec, float* power)
 }
 
 __global__
-void powerArray(int* input, float* weight, float* lut, float* energy)
+void energyADC(int* input, float* weight, float* lut, float* energy)
 {
     // Load ADC energy LUT to shared memory
     __shared__ float s_lut[LENGTH];
