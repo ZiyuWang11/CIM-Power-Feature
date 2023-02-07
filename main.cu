@@ -7,17 +7,15 @@
 #include <cuda_runtime.h>
 
 // Copied from array_power.cu
-#define BIT_PRECISION 8
 #define INPUT_SIZE 256
 #define OUTPUT_SIZE 256
 #define FILTER_SIZE 3
 #define CELL_PER_WEIGHT 4
 
 // Copied from adc_power.cu
-
 #define BIT 8
 #define LENGTH 256
-#define FILTER_NUM 64
+#define FILTER_NUM 32
 #define ADC_EX 32 // (128 / 4)
 #define TILE_SIZE 4
 #define BLOCK_SIZE (TILE_SIZE+FILTER_SIZE-1)
@@ -74,10 +72,14 @@ int main()
         fprintf(stderr, "Failed to allocate host memory at line %d!\n", __LINE__);
         exit(EXIT_FAILURE);
     }
+
+    FILE* pretrainedWeight;
+    pretrainedWeight = fopen("weight.dat", "r");
     for (int i = 0; i < 3 * FILTER_SIZE * FILTER_SIZE * FILTER_NUM; ++i) {
         // weight in range [-1, 1]
-        tempLoadWeight[i] = (float) rand() / RAND_MAX;
+        fscanf(pretrainedWeight, "%f", &tempLoadWeight[i]);
     }
+    fclose(pretrainedWeight);
     /*Code To Change End*/
 
     // Convert Weight to Conducatance Array and Conductance Vector
@@ -117,7 +119,7 @@ int main()
     } 
   
     // Allocate Host Memory for Input, Overwrite this memory
-    size_t size_input = 3 * INPUT_SIZE * INPUT_SIZE * BIT_PRECISION;
+    size_t size_input = 3 * INPUT_SIZE * INPUT_SIZE * BIT;
     int* h_input = (int* ) malloc(size_input * sizeof(int));
     if (h_input == NULL) {
         fprintf(stderr, "Failed to allocate host memory at line %d!\n", __LINE__);
@@ -125,14 +127,14 @@ int main()
     }
 
     // Allocate Host Memory for Array Power Output and ADC Energy Output
-    size_t size_outputArray = OUTPUT_SIZE * OUTPUT_SIZE * BIT_PRECISION;
+    size_t size_outputArray = OUTPUT_SIZE * OUTPUT_SIZE * BIT;
     float* h_outputArray = (float* ) malloc(size_outputArray * sizeof(float));
     if (h_outputArray == NULL) {
         fprintf(stderr, "Failed to allocate host memory at line %d!\n", __LINE__);
 		exit(EXIT_FAILURE);
     }
 
-    size_t size_outputADC = OUTPUT_SIZE * OUTPUT_SIZE * BIT_PRECISION * ADC_EX;
+    size_t size_outputADC = OUTPUT_SIZE * OUTPUT_SIZE * BIT * ADC_EX;
     float* h_outputADC = (float* ) malloc(size_outputADC * sizeof(float));
     if (h_outputADC == NULL) {
         fprintf(stderr, "Failed to allocate host memory at line %d!\n", __LINE__);
@@ -183,10 +185,10 @@ int main()
     // Define Blocks, Threads and Streams
     /*TODO: Change Thread and Block Number*/
     /*Array Power*/
-    dim3 arrayThreadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, BIT_PRECISION);
+    dim3 arrayThreadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, BIT);
     dim3 arrayBlocksPerGrid((INPUT_SIZE-1)/TILE_SIZE+1, (INPUT_SIZE-1)/TILE_SIZE+1, 1);
     /*ADC Energy*/
-    dim3 ADCThreadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, BIT_PRECISION);
+    dim3 ADCThreadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, BIT);
     dim3 ADCBlocksPerGrid((INPUT_SIZE-1)/TILE_SIZE+1, (INPUT_SIZE-1)/TILE_SIZE+1, 1);
     /*TODO End*/
     
@@ -209,8 +211,8 @@ int main()
     for (int i = 0; i < data_len; ++i) {
         // Load input and copy input to Device
         FILE *myFile;
-        char filename[20] = "test";
-        sprintf(filename, "%s%d", filename, i);
+        char filename[100] = "../02_DataPreProcessing/01_tiff2bit/bit_dataRGB/data";
+        sprintf(filename, "%s%d%s", filename, i, ".dat");
         myFile = fopen(filename, "r");
         for (int j = 0; j < size_input; ++j) {
             fscanf(myFile, "%d", &h_input[j]);
@@ -220,12 +222,9 @@ int main()
         err = cudaMemcpy(d_input, h_input, size_input * sizeof(int), cudaMemcpyHostToDevice);
         CHECK_CUDA_ERROR(err);
 
-        printf("Before\n");
-
         // Run Kernel Functions
         powerArray<<<arrayBlocksPerGrid, arrayThreadsPerBlock, 0, stream1>>>(d_input, d_condWeightVec, d_outputArray);
         cudaEventRecord(event1, stream1);
-        printf("After\n");
         energyADC<<<ADCBlocksPerGrid, ADCThreadsPerBlock, 0, stream2>>>(d_input ,d_condWeight, d_adcRefArray, d_outputADC);
         cudaEventRecord(event2, stream2);
 
@@ -244,7 +243,7 @@ int main()
         // Write result to file
         FILE *myFile2;
         char filename2[20] = "power";
-        sprintf(filename2, "%s%d", filename2, i);
+        sprintf(filename2, "%s%d%s", filename2, i, ".dat");
         myFile2 = fopen(filename2, "w");
 
         for (int j = 0; j < BIT; ++j) {
@@ -418,15 +417,15 @@ void powerArray(int* input, float* weight_vec, float* power)
     int col_i = col_o - FILTER_SIZE / 2;
 
     // Load the Input Tile to shared memory
-    __shared__ int s_input[BLOCK_SIZE][BLOCK_SIZE][3*BIT_PRECISION];
+    __shared__ int s_input[BLOCK_SIZE][BLOCK_SIZE][3*BIT];
     if ((row_i >= 0 && row_i < INPUT_SIZE) && 
         (col_i >= 0 && col_i < INPUT_SIZE)) {
-        for (int depth = 0; depth < 3*BIT_PRECISION; ++depth) {
-            s_input[ty][tx][depth] = input[row_i*INPUT_SIZE*BIT_PRECISION*3 + 
-                                           col_i*BIT_PRECISION*3 + depth];
+        for (int depth = 0; depth < 3*BIT; ++depth) {
+            s_input[ty][tx][depth] = input[row_i*INPUT_SIZE*BIT*3 + 
+                                           col_i*BIT*3 + depth];
         }
     } else {
-        for (int depth = 0; depth < 3*BIT_PRECISION; ++depth) {
+        for (int depth = 0; depth < 3*BIT; ++depth) {
             s_input[ty][tx][depth] = 0.0f;
         }
     }
@@ -435,17 +434,17 @@ void powerArray(int* input, float* weight_vec, float* power)
     // threads for row scan, column scan, bit-serial scan
     // a for loop for vector dot product
     float output = 0.0f;
-    if (tx < TILE_SIZE && ty < TILE_SIZE && tz < BIT_PRECISION) {
+    if (tx < TILE_SIZE && ty < TILE_SIZE && tz < BIT) {
         for (int i = 0; i < FILTER_SIZE; ++i) {
             for (int j = 0; j < FILTER_SIZE; ++j) {
                 for (int k = 0; k < 3; ++k) {
-                    output += s_weight[i*FILTER_SIZE*FILTER_SIZE + k*FILTER_SIZE + k] 
+                    output += s_weight[i*FILTER_SIZE*FILTER_SIZE + j*FILTER_SIZE + k] 
                             * s_input[i+ty][j+tx][k+tz];
                 }
             }
         }
-        if (row_o < OUTPUT_SIZE && col_o < OUTPUT_SIZE && dep_o < BIT_PRECISION) {
-            power[row_o*OUTPUT_SIZE*BIT_PRECISION + col_o*BIT_PRECISION + dep_o] = output;
+        if (row_o < OUTPUT_SIZE && col_o < OUTPUT_SIZE && dep_o < BIT) {
+            power[row_o*OUTPUT_SIZE*BIT + col_o*BIT + dep_o] = output;
         }
     }
 }
@@ -477,15 +476,15 @@ void energyADC(int* input, float* weight, float* lut, float* energy)
     int col_i = col_o - FILTER_SIZE / 2;
 
     // Load the Input Tile to shared memory
-    __shared__ int s_input[BLOCK_SIZE][BLOCK_SIZE][3*BIT_PRECISION];
+    __shared__ int s_input[BLOCK_SIZE][BLOCK_SIZE][3*BIT];
     if ((row_i >= 0 && row_i < INPUT_SIZE) && 
         (col_i >= 0 && col_i < INPUT_SIZE)) {
-        for (int depth = 0; depth < 3*BIT_PRECISION; ++depth) {
-            s_input[ty][tx][depth] = input[row_i*INPUT_SIZE*BIT_PRECISION*3 + 
-                                           col_i*BIT_PRECISION*3 + depth];
+        for (int depth = 0; depth < 3*BIT; ++depth) {
+            s_input[ty][tx][depth] = input[row_i*INPUT_SIZE*BIT*3 + 
+                                           col_i*BIT*3 + depth];
         }
     } else {
-        for (int depth = 0; depth < 3*BIT_PRECISION; ++depth) {
+        for (int depth = 0; depth < 3*BI; ++depth) {
             s_input[ty][tx][depth] = 0.0f;
         }
     }
@@ -495,7 +494,7 @@ void energyADC(int* input, float* weight, float* lut, float* energy)
     // threads for row scan, column scan, bit-serial scan
     // a for loop for vector dot product
     float result[ADC_EX]; // An array stores ADC energy of each output feature
-    if (tx < TILE_SIZE && ty < TILE_SIZE && tz < BIT_PRECISION) {
+    if (tx < TILE_SIZE && ty < TILE_SIZE && tz < BIT) {
         for (int k_idx = 0; k_idx < ADC_EX; ++k_idx) {
             float adc_energy = 0.0f; // total ADC energy of each ADC execution cycle
             for (int col = 0; col < 4; ++col) {
@@ -520,9 +519,9 @@ void energyADC(int* input, float* weight, float* lut, float* energy)
             // Total energy of all ADC works together
             result[k_idx] = adc_energy;
         }
-        if (row_o < OUTPUT_SIZE && col_o < OUTPUT_SIZE && dep_o < BIT_PRECISION) {
+        if (row_o < OUTPUT_SIZE && col_o < OUTPUT_SIZE && dep_o < BIT) {
             for (int i = 0; i < ADC_EX; ++i) {
-                energy[(row_o*OUTPUT_SIZE*BIT_PRECISION + col_o*BIT_PRECISION + dep_o) * ADC_EX + i] = result[i];
+                energy[(row_o*OUTPUT_SIZE*BIT + col_o*BIT + dep_o) * ADC_EX + i] = result[i];
             }
         }
     }
