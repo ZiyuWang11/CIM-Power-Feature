@@ -119,7 +119,7 @@ int main()
     } 
   
     // Allocate Host Memory for Input, Overwrite this memory
-    size_t size_input = 3 * INPUT_SIZE * INPUT_SIZE * BIT;
+    unsigned long size_input = 3 * INPUT_SIZE * INPUT_SIZE * BIT;
     int* h_input = (int* ) malloc(size_input * sizeof(int));
     if (h_input == NULL) {
         fprintf(stderr, "Failed to allocate host memory at line %d!\n", __LINE__);
@@ -127,7 +127,7 @@ int main()
     }
 
     // Allocate Host Memory for Array Power Output and ADC Energy Output
-    size_t size_outputArray = OUTPUT_SIZE * OUTPUT_SIZE * BIT;
+    unsigned long size_outputArray = OUTPUT_SIZE * OUTPUT_SIZE * BIT;
     float* h_outputArray = (float* ) malloc(size_outputArray * sizeof(float));
     if (h_outputArray == NULL) {
         fprintf(stderr, "Failed to allocate host memory at line %d!\n", __LINE__);
@@ -246,13 +246,15 @@ int main()
         sprintf(filename2, "%s%d%s", filename2, i, ".dat");
         myFile2 = fopen(filename2, "w");
 
-        for (int j = 0; j < BIT; ++j) {
-            for (int l = 0; l < OUTPUT_SIZE*OUTPUT_SIZE; ++l) {
+        for (unsigned long j = 0; j < BIT; ++j) {
+            for (unsigned long l = 0; l < OUTPUT_SIZE*OUTPUT_SIZE; ++l) {
+                //printf("Array: Index-%lu, Data-%f\n", j*OUTPUT_SIZE*OUTPUT_SIZE+l, h_outputArray[j*OUTPUT_SIZE*OUTPUT_SIZE+l]);
                 fprintf(myFile2, "%f\n", h_outputArray[j*OUTPUT_SIZE*OUTPUT_SIZE+l]);
             }
             
-            for (int k = 0; k < ADC_EX; ++k) {
-                for (int l = 0; l < OUTPUT_SIZE*OUTPUT_SIZE; ++l) {
+            for (unsigned long k = 0; k < ADC_EX; ++k) {
+                for (unsigned long l = 0; l < OUTPUT_SIZE*OUTPUT_SIZE; ++l) {
+                    printf("ADC: Index-%lu, Data-%f\n", (j*ADC_EX+k)*OUTPUT_SIZE*OUTPUT_SIZE+l, h_outputADC[(j*ADC_EX+k)*OUTPUT_SIZE*OUTPUT_SIZE+l]);
                     fprintf(myFile2, "%f\n", h_outputADC[(j*ADC_EX+k)*OUTPUT_SIZE*OUTPUT_SIZE+l]);
                 }
             }
@@ -368,11 +370,12 @@ float* adcRef(int bit = 8)
 CondSet condWeight(float weight, float maxCond = 100.0, float minCond = 1.0)
 {
     CondSet condWeights;
+    weight = weight * 255;
 
     if (weight >= 0) {
         condWeights.N_MSB = 0.0;
         condWeights.N_LSB = 0.0;
-        std::bitset<BIT> quantWeight = (int) weight * 255;
+        std::bitset<BIT> quantWeight = (int) weight;
         condWeights.P_MSB = (maxCond - minCond) / 15 * 
                            (quantWeight[7] << 3 + quantWeight[6] << 2 + 
                             quantWeight[5] << 1 + quantWeight[4]) + minCond;
@@ -383,7 +386,7 @@ CondSet condWeight(float weight, float maxCond = 100.0, float minCond = 1.0)
     else {
         condWeights.P_MSB = 0.0;
         condWeights.P_LSB = 0.0;
-        std::bitset<BIT> quantWeight = (int) -weight * 255;
+        std::bitset<BIT> quantWeight = (int) -weight;
         condWeights.N_MSB = (maxCond - minCond) / 15 * 
                            (quantWeight[7] << 3 + quantWeight[6] << 2 + 
                             quantWeight[5] << 1 + quantWeight[4]) + minCond;
@@ -484,7 +487,7 @@ void energyADC(int* input, float* weight, float* lut, float* energy)
                                            col_i*BIT*3 + depth];
         }
     } else {
-        for (int depth = 0; depth < 3*BI; ++depth) {
+        for (int depth = 0; depth < 3*BIT; ++depth) {
             s_input[ty][tx][depth] = 0.0f;
         }
     }
@@ -499,13 +502,10 @@ void energyADC(int* input, float* weight, float* lut, float* energy)
             float adc_energy = 0.0f; // total ADC energy of each ADC execution cycle
             for (int col = 0; col < 4; ++col) {
                 float output1 = 0.0f; // partial result of the first tile
-                float output2 = 0.0f; // partial result of the second tile
                 for (int i = 0; i < FILTER_SIZE; ++i) {
                     for (int j = 0; j < FILTER_SIZE; ++j) {
                         for (int k = 0; k < 3; ++k) {
                             output1 += s_weight[k_idx*4*27 + col*27 + i*FILTER_SIZE*FILTER_SIZE + j*FILTER_SIZE + k] 
-                                    * s_input[i+ty][j+tx][k+tz];
-                            output2 += s_weight[3456 + k_idx*4*27 + col*27 + i*FILTER_SIZE*FILTER_SIZE + j*FILTER_SIZE + k] 
                                     * s_input[i+ty][j+tx][k+tz];
                         }
                     }
@@ -513,8 +513,7 @@ void energyADC(int* input, float* weight, float* lut, float* energy)
                 // Result done, indexing ADC energy here
                 // Scale to [0,255]
                 int index1 = output1 > 255.0 ? 255 : (int)output1;
-                int index2 = output2 > 255.0 ? 255 : (int)output2;
-                adc_energy += s_lut[index1] + s_lut[index2];
+                adc_energy += s_lut[index1];
             }
             // Total energy of all ADC works together
             result[k_idx] = adc_energy;
