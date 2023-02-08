@@ -247,15 +247,10 @@ int main()
         myFile2 = fopen(filename2, "w");
 
         for (unsigned long j = 0; j < BIT; ++j) {
-            for (unsigned long l = 0; l < OUTPUT_SIZE*OUTPUT_SIZE; ++l) {
-                //printf("Array: Index-%lu, Data-%f\n", j*OUTPUT_SIZE*OUTPUT_SIZE+l, h_outputArray[j*OUTPUT_SIZE*OUTPUT_SIZE+l]);
-                fprintf(myFile2, "%f\n", h_outputArray[j*OUTPUT_SIZE*OUTPUT_SIZE+l]);
-            }
-            
-            for (unsigned long k = 0; k < ADC_EX; ++k) {
-                for (unsigned long l = 0; l < OUTPUT_SIZE*OUTPUT_SIZE; ++l) {
-                    printf("ADC: Index-%lu, Data-%f\n", (j*ADC_EX+k)*OUTPUT_SIZE*OUTPUT_SIZE+l, h_outputADC[(j*ADC_EX+k)*OUTPUT_SIZE*OUTPUT_SIZE+l]);
-                    fprintf(myFile2, "%f\n", h_outputADC[(j*ADC_EX+k)*OUTPUT_SIZE*OUTPUT_SIZE+l]);
+            for (unsigned long k = 0; k < OUTPUT_SIZE*OUTPUT_SIZE; ++k) {
+                fprintf(myFile2, "%f\n", h_outputArray[j*OUTPUT_SIZE*OUTPUT_SIZE+k]);
+                for (unsigned long l = 0; l < ADC_EX; ++l) {
+                    fprintf(myFile2, "%f\n", h_outputADC[j*ADC_EX*OUTPUT_SIZE*OUTPUT_SIZE+k*ADC_EX+l]);
                 }
             }
         }
