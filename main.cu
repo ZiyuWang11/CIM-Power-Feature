@@ -66,7 +66,6 @@ int main()
     }
 
     // Load weight, covert weight to conductance
-    /* NOTE: Change Random Numbers to PyTorch Model*/
     float* tempLoadWeight = (float* ) malloc(3 * FILTER_SIZE * FILTER_SIZE * FILTER_NUM * sizeof(float));
     if (tempLoadWeight == NULL) {
         fprintf(stderr, "Failed to allocate host memory at line %d!\n", __LINE__);
@@ -80,20 +79,19 @@ int main()
         fscanf(pretrainedWeight, "%f", &tempLoadWeight[i]);
     }
     fclose(pretrainedWeight);
-    /*Code To Change End*/
 
     // Convert Weight to Conducatance Array and Conductance Vector
     /* Conductance Array for ADC Energy Kernel Function */
     float maxCond = 100.0;
     float minCond = 1.0;
-    for (int i = 0; i < FILTER_NUM; ++i) {
-        for (int j = 0; j < 3 * FILTER_SIZE * FILTER_SIZE; ++j) {
-            CondSet weights = condWeight(tempLoadWeight[27*i+j], maxCond, minCond);
+    for (int i = 0; i < 3 * FILTER_SIZE * FILTER_SIZE; ++i) { // Row
+        for (int j = 0; j < FILTER_NUM; ++j) { // Column
+            CondSet weights = condWeight(tempLoadWeight[FILTER_NUM*i+j], maxCond, minCond);
             
-            h_condWeight[27*(4*i)+j] = weights.P_MSB;
-            h_condWeight[27*(4*i+1)+j] = weights.P_LSB;
-            h_condWeight[27*(4*i+2)+j] = weights.N_MSB;
-            h_condWeight[27*(4*i+3)+j] = weights.N_LSB;
+            h_condWeight[FILTER_NUM * CELL_PER_WEIGHT * i + CELL_PER_WEIGHT * j] = weights.P_MSB;
+            h_condWeight[FILTER_NUM * CELL_PER_WEIGHT * i + CELL_PER_WEIGHT * j + 1] = weights.P_LSB;
+            h_condWeight[FILTER_NUM * CELL_PER_WEIGHT * i + CELL_PER_WEIGHT * j + 2] = weights.N_MSB;
+            h_condWeight[FILTER_NUM * CELL_PER_WEIGHT * i + CELL_PER_WEIGHT * j + 3] = weights.N_LSB;
         }
     }
 
