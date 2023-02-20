@@ -17,6 +17,8 @@
 #define LENGTH 256
 #define FILTER_NUM 32
 #define ADC_EX 32 // (128 / 4)
+#define TILE_SIZE_ARRAY 8
+#define BLOCK_SIZE_ARRAY (TILE_SIZE_ARRAY+FILTER_SIZE-1)
 #define TILE_SIZE 4
 #define BLOCK_SIZE (TILE_SIZE+FILTER_SIZE-1)
 
@@ -183,8 +185,8 @@ int main()
     // Define Blocks, Threads and Streams
     /*TODO: Change Thread and Block Number*/
     /*Array Power*/
-    dim3 arrayThreadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, BIT);
-    dim3 arrayBlocksPerGrid((INPUT_SIZE-1)/TILE_SIZE+1, (INPUT_SIZE-1)/TILE_SIZE+1, 1);
+    dim3 arrayThreadsPerBlock(BLOCK_SIZE_ARRAY, BLOCK_SIZE_ARRAY, BIT);
+    dim3 arrayBlocksPerGrid((INPUT_SIZE-1)/TILE_SIZE_ARRAY+1, (INPUT_SIZE-1)/TILE_SIZE_ARRAY+1, 1);
     /*ADC Energy*/
     dim3 ADCThreadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, BIT);
     dim3 ADCBlocksPerGrid((INPUT_SIZE-1)/TILE_SIZE+1, (INPUT_SIZE-1)/TILE_SIZE+1, 1);
@@ -405,15 +407,15 @@ void powerArray(int* input, float* weight_vec, float* power)
     int ty = threadIdx.y;
     int tz = threadIdx.z;
     
-    int row_o = blockIdx.y * TILE_SIZE + ty;
-    int col_o = blockIdx.x * TILE_SIZE + tx;
+    int row_o = blockIdx.y * TILE_SIZE_ARRAY + ty;
+    int col_o = blockIdx.x * TILE_SIZE_ARRAY + tx;
     int dep_o = tz;
 
     int row_i = row_o - FILTER_SIZE / 2;
     int col_i = col_o - FILTER_SIZE / 2;
 
     // Load the Input Tile to shared memory
-    __shared__ int s_input[BLOCK_SIZE][BLOCK_SIZE][3*BIT];
+    __shared__ int s_input[BLOCK_SIZE_ARRAY][BLOCK_SIZE_ARRAY][3*BIT];
     if ((row_i >= 0 && row_i < INPUT_SIZE) && 
         (col_i >= 0 && col_i < INPUT_SIZE)) {
         for (int depth = 0; depth < 3*BIT; ++depth) {
@@ -430,12 +432,12 @@ void powerArray(int* input, float* weight_vec, float* power)
     // threads for row scan, column scan, bit-serial scan
     // a for loop for vector dot product
     float output = 0.0f;
-    if (tx < TILE_SIZE && ty < TILE_SIZE && tz < BIT) {
+    if (tx < TILE_SIZE_ARRAY && ty < TILE_SIZE_ARRAY && tz < BIT) {
         for (int i = 0; i < FILTER_SIZE; ++i) {
             for (int j = 0; j < FILTER_SIZE; ++j) {
                 for (int k = 0; k < 3; ++k) {
                     output += s_weight[i*FILTER_SIZE*FILTER_SIZE + j*FILTER_SIZE + k] 
-                            * s_input[i+ty][j+tx][k+tz];
+                            * s_input[i+ty][j+tx][k*BIT+tz];
                 }
             }
         }
