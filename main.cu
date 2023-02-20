@@ -19,7 +19,7 @@
 #define ADC_EX 32 // (128 / 4)
 #define TILE_SIZE_ARRAY 8
 #define BLOCK_SIZE_ARRAY (TILE_SIZE_ARRAY+FILTER_SIZE-1)
-#define TILE_SIZE 4
+#define TILE_SIZE 8
 #define BLOCK_SIZE (TILE_SIZE+FILTER_SIZE-1)
 
 #define CHECK_CUDA_ERROR(err) check((err), __FILE__, __LINE__)
@@ -457,9 +457,15 @@ void energyADC(int* input, float* weight, float* lut, float* energy)
     }
 
     // Load all conv kernels to shared memory
-    __shared__ float s_weight[3 * FILTER_SIZE * FILTER_SIZE * FILTER_NUM * CELL_PER_WEIGHT];
-    for (int i = 0; i < 3*FILTER_SIZE*FILTER_SIZE*FILTER_NUM*CELL_PER_WEIGHT; ++i) {
-        s_weight[i] = weight[i];
+    //__shared__ float s_weight[3 * FILTER_SIZE * FILTER_SIZE * FILTER_NUM * CELL_PER_WEIGHT];
+    //for (int i = 0; i < 3*FILTER_SIZE*FILTER_SIZE*FILTER_NUM*CELL_PER_WEIGHT; ++i) {
+    //    s_weight[i] = weight[i];
+    //}
+    __shared__ float s_weight[3*FILTER_SIZE*FILTER_SIZE][FILTER_NUM*CELL_PER_WEIGHT];
+    for (int i = 0; i < 3*FILTER_SIZE*FILTER_SIZE; ++i) {
+        for (int j = 0; j < FILTER_NUM*CELL_PER_WEIGHT; ++j) {
+            s_weight[i][j] = weight[i*FILTER_NUM*CELL_PER_WEIGHT + j];
+        }
     }
     
     int tx = threadIdx.x;
@@ -500,14 +506,16 @@ void energyADC(int* input, float* weight, float* lut, float* energy)
                 for (int i = 0; i < FILTER_SIZE; ++i) {
                     for (int j = 0; j < FILTER_SIZE; ++j) {
                         for (int k = 0; k < 3; ++k) {
-                            output1 += s_weight[k_idx*4*27 + col*27 + i*FILTER_SIZE*FILTER_SIZE + j*FILTER_SIZE + k] 
-                                    * s_input[i+ty][j+tx][k+tz];
+                            //output1 += s_weight[k_idx*4*27 + col*27 + i*FILTER_SIZE*FILTER_SIZE + j*FILTER_SIZE + k] 
+                            //        * s_input[i+ty][j+tx][k*BIT+tz];
+                            output1 += s_weight[i*FILTER_SIZE*FILTER_SIZE + j*FILTER_SIZE + k][k_idx*4 + col]
+                                    * s_input[i+ty][j+tx][k*BIT+tz];
                         }
                     }
                 }
                 // Result done, indexing ADC energy here
                 // Scale to [0,255]
-                int index1 = output1 > 255.0 ? 255 : (int)output1;
+                int index1 = output1 > 255.0 ? 255 : (int)output1*1.0; // Scale the output range
                 adc_energy += s_lut[index1];
             }
             // Total energy of all ADC works together
