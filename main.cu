@@ -97,6 +97,16 @@ int main()
         }
     }
 
+    // Save Conductance Weight
+    FILE* weight;
+    char test[20] = "weightCond.dat";
+    weight = fopen(test, "w");
+    for (int i = 0; i < 27 * 108; ++i) {
+        fprintf(weight, "%f\n", h_condWeight[i]);
+    }
+
+    fclose(weight);
+
     /* Conductance Vectro for Array Power Kernel Function*/
     for (int i = 0; i < 3 * FILTER_SIZE * FILTER_SIZE; ++i) {
         float p_sum = 0.0;
@@ -117,7 +127,7 @@ int main()
     for (int i = 0; i < LENGTH; ++i) {
         h_adcRefArray[i] = test_adcRefArray[i];
     } 
-  
+    
     // Allocate Host Memory for Input, Overwrite this memory
     unsigned long size_input = 3 * INPUT_SIZE * INPUT_SIZE * BIT;
     int* h_input = (int* ) malloc(size_input * sizeof(int));
@@ -183,14 +193,12 @@ int main()
     CHECK_CUDA_ERROR(err);
 
     // Define Blocks, Threads and Streams
-    /*TODO: Change Thread and Block Number*/
     /*Array Power*/
     dim3 arrayThreadsPerBlock(BLOCK_SIZE_ARRAY, BLOCK_SIZE_ARRAY, BIT);
     dim3 arrayBlocksPerGrid((INPUT_SIZE-1)/TILE_SIZE_ARRAY+1, (INPUT_SIZE-1)/TILE_SIZE_ARRAY+1, 1);
     /*ADC Energy*/
     dim3 ADCThreadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, BIT);
     dim3 ADCBlocksPerGrid((INPUT_SIZE-1)/TILE_SIZE+1, (INPUT_SIZE-1)/TILE_SIZE+1, 1);
-    /*TODO End*/
     
     /*2 Streams*/
     cudaStream_t stream1, stream2;
@@ -246,14 +254,16 @@ int main()
         sprintf(filename2, "%s%d%s", filename2, i, ".dat");
         myFile2 = fopen(filename2, "w");
 
+        // Change to save array or ADC only for data check
         for (unsigned long j = 0; j < BIT; ++j) {
             for (unsigned long k = 0; k < OUTPUT_SIZE*OUTPUT_SIZE; ++k) {
-                fprintf(myFile2, "%f\n", h_outputArray[j*OUTPUT_SIZE*OUTPUT_SIZE+k]);
+                //fprintf(myFile2, "%f\n", h_outputArray[j*OUTPUT_SIZE*OUTPUT_SIZE+k]);
                 for (unsigned long l = 0; l < ADC_EX; ++l) {
                     fprintf(myFile2, "%f\n", h_outputADC[j*ADC_EX*OUTPUT_SIZE*OUTPUT_SIZE+k*ADC_EX+l]);
                 }
             }
         }
+        /*TODO: Change above code back*/
 
         fclose(myFile2);
     }
@@ -366,28 +376,41 @@ CondSet condWeight(float weight, float maxCond = 100.0, float minCond = 1.0)
 {
     CondSet condWeights;
     weight = weight * 255;
+    printf("Normalized Weight: %f\n", weight);
 
     if (weight >= 0) {
-        condWeights.N_MSB = 0.0;
-        condWeights.N_LSB = 0.0;
+        condWeights.N_MSB = minCond;
+        condWeights.N_LSB = minCond;
         std::bitset<BIT> quantWeight = (int) weight;
         condWeights.P_MSB = (maxCond - minCond) / 15 * 
-                           (quantWeight[7] << 3 + quantWeight[6] << 2 + 
-                            quantWeight[5] << 1 + quantWeight[4]) + minCond;
+                           ((quantWeight[7] << 3) + (quantWeight[6] << 2) + 
+                            (quantWeight[5] << 1) + quantWeight[4]) + minCond;
         condWeights.P_LSB = (maxCond - minCond) / 15 * 
-                           (quantWeight[3] << 3 + quantWeight[2] << 2 + 
-                            quantWeight[1] << 1 + quantWeight[0]) + minCond;
+                           ((quantWeight[3] << 3) + (quantWeight[2] << 2) + 
+                            (quantWeight[1] << 1) + quantWeight[0]) + minCond;
+        //printf("Positive Weight - MSB: %f, LSB: %f\n", condWeights.P_MSB, condWeights.P_LSB);
+        //printf("Bit Serial: ");
+        //for (int i = 0; i < quantWeight.size(); ++i) {
+        //    printf("%d", (int)quantWeight[7-i]);
+        //}
+        //printf("\n");
     }
     else {
-        condWeights.P_MSB = 0.0;
-        condWeights.P_LSB = 0.0;
+        condWeights.P_MSB = minCond;
+        condWeights.P_LSB = minCond;
         std::bitset<BIT> quantWeight = (int) -weight;
         condWeights.N_MSB = (maxCond - minCond) / 15 * 
-                           (quantWeight[7] << 3 + quantWeight[6] << 2 + 
-                            quantWeight[5] << 1 + quantWeight[4]) + minCond;
+                           ((quantWeight[7] << 3) + (quantWeight[6] << 2) + 
+                            (quantWeight[5] << 1) + quantWeight[4]) + minCond;
         condWeights.N_LSB = (maxCond - minCond) / 15 * 
-                           (quantWeight[3] << 3 + quantWeight[2] << 2 + 
-                            quantWeight[1] << 1 + quantWeight[0]) + minCond;
+                           ((quantWeight[3] << 3) + (quantWeight[2] << 2) + 
+                            (quantWeight[1] << 1) + quantWeight[0]) + minCond;
+        //printf("Negative Weight - MSB: %f, LSB: %f\n", condWeights.N_MSB, condWeights.N_LSB);
+        //printf("Bit Serial: ");
+        //for (int i = 0; i < quantWeight.size(); ++i) {
+        //    printf("%d", (int)quantWeight[7-i]);
+        //}
+        //printf("\n");
     }
 
     return condWeights;
@@ -506,8 +529,6 @@ void energyADC(int* input, float* weight, float* lut, float* energy)
                 for (int i = 0; i < FILTER_SIZE; ++i) {
                     for (int j = 0; j < FILTER_SIZE; ++j) {
                         for (int k = 0; k < 3; ++k) {
-                            //output1 += s_weight[k_idx*4*27 + col*27 + i*FILTER_SIZE*FILTER_SIZE + j*FILTER_SIZE + k] 
-                            //        * s_input[i+ty][j+tx][k*BIT+tz];
                             output1 += s_weight[i*FILTER_SIZE*FILTER_SIZE + j*FILTER_SIZE + k][k_idx*4 + col]
                                     * s_input[i+ty][j+tx][k*BIT+tz];
                         }
@@ -515,7 +536,7 @@ void energyADC(int* input, float* weight, float* lut, float* energy)
                 }
                 // Result done, indexing ADC energy here
                 // Scale to [0,255]
-                int index1 = output1 > 255.0 ? 255 : (int)output1*1.0; // Scale the output range
+                int index1 = output1 > 255.0 ? 255 : (int) (output1 / 280.0); // Scale the output range
                 adc_energy += s_lut[index1];
             }
             // Total energy of all ADC works together
