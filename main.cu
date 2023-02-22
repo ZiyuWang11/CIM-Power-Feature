@@ -101,7 +101,7 @@ int main()
     FILE* weight;
     char test[20] = "weightCond.dat";
     weight = fopen(test, "w");
-    for (int i = 0; i < 27 * 108; ++i) {
+    for (int i = 0; i < 27 * 128; ++i) {
         fprintf(weight, "%f\n", h_condWeight[i]);
     }
 
@@ -376,7 +376,7 @@ CondSet condWeight(float weight, float maxCond = 100.0, float minCond = 1.0)
 {
     CondSet condWeights;
     weight = weight * 255;
-    printf("Normalized Weight: %f\n", weight);
+    //printf("Normalized Weight: %f\n", weight);
 
     if (weight >= 0) {
         condWeights.N_MSB = minCond;
@@ -536,7 +536,7 @@ void energyADC(int* input, float* weight, float* lut, float* energy)
                 }
                 // Result done, indexing ADC energy here
                 // Scale to [0,255]
-                int index1 = output1 > 255.0 ? 255 : (int) (output1 / 280.0); // Scale the output range
+                int index1 = output1 > 255.0 ? 255 : (int) output1; // Scale the output range
                 adc_energy += s_lut[index1];
             }
             // Total energy of all ADC works together
