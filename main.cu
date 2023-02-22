@@ -192,6 +192,14 @@ int main()
     err = cudaMemcpy(d_adcRefArray, h_adcRefArray, size_lut * sizeof(float), cudaMemcpyHostToDevice);
     CHECK_CUDA_ERROR(err);
 
+    // Allocate Host Memory for Fainal Output
+    unsigned long size_finalOutput = OUTPUT_SIZE * OUTPUT_SIZE * (1 + ADC_EX);
+    float* finalOutput = (float* ) malloc(size_finalOutput * sizeof(float));
+    if (finalOutput == NULL) {
+        fprintf(stderr, "Failed to allocate host memory at line %d!\n", __LINE__);
+		exit(EXIT_FAILURE);
+    }
+
     // Define Blocks, Threads and Streams
     /*Array Power*/
     dim3 arrayThreadsPerBlock(BLOCK_SIZE_ARRAY, BLOCK_SIZE_ARRAY, BIT);
@@ -248,13 +256,38 @@ int main()
         err = cudaMemcpy(h_outputADC, d_outputADC, size_outputADC * sizeof(float), cudaMemcpyDeviceToHost);
         CHECK_CUDA_ERROR(err);
 
+        // Data Pre-processing - Weighted Sum
+        memset(finalOutput, 0.0, size_finalOutput * sizeof(float));
+        for (unsigned long j = 0; j < BIT; ++j) {
+            for (unsigned long k = 0; k < OUTPUT_SIZE*OUTPUT_SIZE; ++k) {
+                finalOutput[k] += h_outputArray[j*OUTPUT_SIZE*OUTPUT_SIZE+k] * (1 << j);
+                for (unsigned long l = 0; l < ADC_EX; ++l) {
+                    finalOutput[OUTPUT_SIZE*OUTPUT_SIZE + k*ADC_EX + l] +=
+                    h_outputADC[j*ADC_EX*OUTPUT_SIZE*OUTPUT_SIZE+k*ADC_EX+l] * (1 << j);
+                }
+            }
+        }
+
+        FILE *myFile2;
+        char filename2[20] = "power";
+        sprintf(filename2, "%s%d%s", filename2, i, ".dat");
+        myFile2 = fopen(filename2, "w");
+
+        for (unsigned long j = 0; j < size_finalOutput; ++j) {
+            fprintf(myFile2, "%f\n", finalOutput[j]);
+        }
+
+        fclose(myFile2);
+
+        // Below is original data saving without weigted sum
+        /*
         // Write result to file
         FILE *myFile2;
         char filename2[20] = "power";
         sprintf(filename2, "%s%d%s", filename2, i, ".dat");
         myFile2 = fopen(filename2, "w");
 
-        // Change to save array or ADC only for data check
+
         for (unsigned long j = 0; j < BIT; ++j) {
             for (unsigned long k = 0; k < OUTPUT_SIZE*OUTPUT_SIZE; ++k) {
                 //fprintf(myFile2, "%f\n", h_outputArray[j*OUTPUT_SIZE*OUTPUT_SIZE+k]);
@@ -263,9 +296,9 @@ int main()
                 }
             }
         }
-        /*TODO: Change above code back*/
 
         fclose(myFile2);
+        */
     }
 
     // Free Device Memory
