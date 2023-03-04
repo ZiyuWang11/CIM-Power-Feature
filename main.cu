@@ -231,6 +231,7 @@ int main()
         sprintf(filename, "%s%d%s", filename, i, ".dat");
         myFile = fopen(filename, "r");
         for (int j = 0; j < size_input; ++j) {
+            //h_input[j] = 1.0;
             fscanf(myFile, "%d", &h_input[j]);
         }
         fclose(myFile);
@@ -259,15 +260,21 @@ int main()
         // Data Pre-processing - Weighted Sum
         memset(finalOutput, 0.0, size_finalOutput * sizeof(float));
         for (unsigned long j = 0; j < BIT; ++j) {
-            for (unsigned long k = 0; k < OUTPUT_SIZE*OUTPUT_SIZE; ++k) {
-                finalOutput[k] += h_outputArray[j*OUTPUT_SIZE*OUTPUT_SIZE+k] * (1 << j);
-                for (unsigned long l = 0; l < ADC_EX; ++l) {
-                    finalOutput[OUTPUT_SIZE*OUTPUT_SIZE + k*ADC_EX + l] +=
-                    h_outputADC[j*ADC_EX*OUTPUT_SIZE*OUTPUT_SIZE+k*ADC_EX+l] * (1 << j);
+            for (unsigned long k = 0; k < OUTPUT_SIZE; ++k) {
+                for (unsigned long l = 0; l < OUTPUT_SIZE; ++l) {
+                    finalOutput[k*OUTPUT_SIZE+l] += h_outputArray[OUTPUT_SIZE*BIT*k+BIT*l+j] * (1 << j);
+                    for (unsigned long m = 0; m < ADC_EX; ++m) {
+                        finalOutput[OUTPUT_SIZE*OUTPUT_SIZE+OUTPUT_SIZE*ADC_EX*k+ADC_EX*l+m] += 
+                        h_outputADC[OUTPUT_SIZE*BIT*ADC_EX*k+BIT*ADC_EX*l+ADC_EX*j+m] * (1<<j);
+                    }
                 }
+                //for (unsigned long l = 0; l < ADC_EX; ++l) {
+                //    finalOutput[OUTPUT_SIZE*OUTPUT_SIZE + k*ADC_EX + l] +=
+                //    h_outputADC[j*ADC_EX*OUTPUT_SIZE*OUTPUT_SIZE+k*ADC_EX+l] * (1 << j);
+                //}
             }
         }
-
+        
         FILE *myFile2;
         char filename2[20] = "power";
         sprintf(filename2, "%s%d%s", filename2, i, ".dat");
@@ -278,7 +285,7 @@ int main()
         }
 
         fclose(myFile2);
-
+        
         // Below is original data saving without weigted sum
         /*
         // Write result to file
@@ -287,16 +294,16 @@ int main()
         sprintf(filename2, "%s%d%s", filename2, i, ".dat");
         myFile2 = fopen(filename2, "w");
 
-
+        
         for (unsigned long j = 0; j < BIT; ++j) {
             for (unsigned long k = 0; k < OUTPUT_SIZE*OUTPUT_SIZE; ++k) {
-                //fprintf(myFile2, "%f\n", h_outputArray[j*OUTPUT_SIZE*OUTPUT_SIZE+k]);
-                for (unsigned long l = 0; l < ADC_EX; ++l) {
-                    fprintf(myFile2, "%f\n", h_outputADC[j*ADC_EX*OUTPUT_SIZE*OUTPUT_SIZE+k*ADC_EX+l]);
-                }
+                fprintf(myFile2, "%f\n", h_outputArray[j*OUTPUT_SIZE*OUTPUT_SIZE+k]);
+                //for (unsigned long l = 0; l < ADC_EX; ++l) {
+                //    fprintf(myFile2, "%f\n", h_outputADC[j*ADC_EX*OUTPUT_SIZE*OUTPUT_SIZE+k*ADC_EX+l]);
+                //}
             }
         }
-
+        
         fclose(myFile2);
         */
     }
