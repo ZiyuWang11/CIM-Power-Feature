@@ -264,7 +264,7 @@ int main()
                 for (unsigned long l = 0; l < OUTPUT_SIZE; ++l) {
                     finalOutput[k*OUTPUT_SIZE+l] += h_outputArray[OUTPUT_SIZE*BIT*k+BIT*l+j] * (1 << j);
                     for (unsigned long m = 0; m < ADC_EX; ++m) {
-                        finalOutput[OUTPUT_SIZE*OUTPUT_SIZE+OUTPUT_SIZE*ADC_EX*k+ADC_EX*l+m] += 
+                        finalOutput[OUTPUT_SIZE*OUTPUT_SIZE+OUTPUT_SIZE*OUTPUT_SIZE*m+OUTPUT_SIZE*k+l] += 
                         h_outputADC[OUTPUT_SIZE*BIT*ADC_EX*k+BIT*ADC_EX*l+ADC_EX*j+m] * (1<<j);
                     }
                 }
@@ -276,7 +276,7 @@ int main()
         }
         
         FILE *myFile2;
-        char filename2[20] = "power";
+        char filename2[80] = "/scratch/wluee_root/wluee1/ziwa/power";
         sprintf(filename2, "%s%d%s", filename2, i, ".dat");
         myFile2 = fopen(filename2, "w");
 
